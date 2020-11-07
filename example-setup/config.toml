@@ -1,10 +1,11 @@
 # The config file
-# all relative paths are relative to this file
+# For the format, see README.md
 
-index = "index.html" # the index file
-addr = "localhost:8000" # the address to bind to
-failsafe_addrs = ["localhost:8001"] # the addresses to bind to if the first one fails (optional)
+index = "index.html"
+addr = "localhost:8000"
+failsafe_addrs = ["localhost:8001"]
+host_files = ["index.html"]
 
-[get_routes] # routes for files accessible via GET request (optional)
-"style.css" = "style.css" # file with inferred type (which is currently very limited)
-"favicon.ico" = { type = "image/png", path = "favicon.png" } # file with explicit type
+[get_routes]
+"style.css" = "style.css"
+"favicon.ico" = { type = "image/png", path = "favicon.png" }

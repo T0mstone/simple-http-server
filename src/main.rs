@@ -2,6 +2,7 @@ use mime::Mime;
 use rouille::{Response, ResponseBody};
 use serde_derive::Deserialize;
 use std::collections::HashMap;
+use std::io::Write;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
@@ -12,26 +13,19 @@ use thiserror::Error;
 ////// ARGS //////
 
 #[derive(StructOpt)]
-#[structopt(verbatim_doc_comment)]
 /// A simple configurable http server
-///
-/// Config file format:
-///     The file format is TOML.
-///
-///     global keys:
-///     - 'index' (required): the path to the index html file
-///     - 'addr' (required): the ip address (including port) to bind to
-///     - 'failsafe_addrs' (optional): the ip addresses to try one after the other if 'addr' fails
-///         Trying stops once a working one is found and that one is then used
-///     - 'host_files' (optional): a list of FileObjects with relative paths which to host at those paths
-///
-///     sections:
-///     - 'get_routes' (optional): specify which paths lead to which files (the values are FileObjects)
-///
-///     A FileObject is either a path (relative or absolute) or a map of the form '{ type = <mime type>, path = <path> }'
 pub struct Args {
     /// The path to the configuration file
+    ///
+    /// For the format, refer to the README (--dump-readme)
+    #[structopt(
+        required_unless = "dump_readme",
+        default_value_if("dump_readme", None, "")
+    )]
     pub config: PathBuf,
+    /// Prints the REAMDE and exits
+    #[structopt(long)]
+    pub dump_readme: bool,
 }
 
 impl Args {
@@ -43,6 +37,7 @@ impl Args {
 
 ////// CONFIG //////
 
+// note: RouteFile is called FileObject in the docs
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum RouteFile {
@@ -78,6 +73,8 @@ pub struct ConfigContent {
     pub addr: String,
     #[serde(default)]
     pub failsafe_addrs: Vec<String>,
+    #[serde(default)]
+    pub host_files: Vec<RouteFile>,
     pub get_routes: Option<HashMap<String, RouteFile>>,
 }
 
@@ -112,8 +109,7 @@ pub enum LoadConfigError {
 }
 
 impl Config {
-    pub fn load() -> Result<Self, LoadConfigError> {
-        let args = Args::get();
+    pub fn new(args: Args) -> Result<Self, LoadConfigError> {
         let s = std::fs::read_to_string(&args.config)?;
         let content = toml::from_str(&s)?;
         Ok(Self {
@@ -143,7 +139,19 @@ impl Config {
                 self.resolve_path(&self.index),
             ),
             s => {
-                let route = self.get_routes.as_ref()?.get(s)?;
+                let route = self
+                    .host_files
+                    .iter()
+                    .filter_map(|r| {
+                        let path: &Path = s.as_ref();
+                        if r.path().is_relative() && r.path() == path {
+                            Some(r)
+                        } else {
+                            None
+                        }
+                    })
+                    .next()
+                    .or_else(|| self.get_routes.as_ref()?.get(s))?;
                 let path = self.resolve_path(route.path());
                 let mime = path
                     .extension()
@@ -251,8 +259,18 @@ impl HttpServer {
     }
 }
 
+const README: &str = include_str!("../README.md");
+
 fn main() {
-    let cfg = match Config::load() {
+    let args = Args::get();
+
+    if args.dump_readme {
+        print!("{}", README);
+        let _ = std::io::stdout().flush();
+        return;
+    }
+
+    let cfg = match Config::new(args) {
         Ok(x) => x,
         Err(e) => {
             eprintln!("Error while retrieving config: {}", e);
