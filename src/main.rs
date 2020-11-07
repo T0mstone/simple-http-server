@@ -20,7 +20,7 @@ use thiserror::Error;
 ///
 ///     global keys:
 ///     - 'index' (required): the path to the index html file
-///     - 'addr' (optional): the ip address (including port) to bind to
+///     - 'addr' (required): the ip address (including port) to bind to
 ///     - 'failsafe_addrs' (optional): the ip addresses to try one after the other if 'addr' fails
 ///         Trying stops once a working one is found and that one is then used
 ///     - 'host_files' (optional): a list of FileObjects with relative paths which to host at those paths
@@ -72,14 +72,9 @@ impl RouteFile {
     }
 }
 
-fn localhost_8000() -> String {
-    "127.0.0.1:8000".to_string()
-}
-
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 pub struct ConfigContent {
     pub index: PathBuf,
-    #[serde(default = "localhost_8000")]
     pub addr: String,
     #[serde(default)]
     pub failsafe_addrs: Vec<String>,
