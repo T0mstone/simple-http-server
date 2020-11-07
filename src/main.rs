@@ -19,11 +19,11 @@ pub struct Args {
     ///
     /// For the format, refer to the README (--dump-readme)
     #[structopt(
-        required_unless = "dump_readme",
-        default_value_if("dump_readme", None, "")
+        required_unless = "dump-readme",
+        default_value_if("dump-readme", None, "")
     )]
     pub config: PathBuf,
-    /// Prints the REAMDE and exits
+    /// Prints the REAMDE and exits (you don't need to provide a config)
     #[structopt(long)]
     pub dump_readme: bool,
 }
