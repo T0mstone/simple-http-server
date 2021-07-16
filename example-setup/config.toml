@@ -1,11 +1,11 @@
 # The config file
 # For the format, see README.md
 
-index = "index.html"
 addr = "localhost:8000"
 failsafe_addrs = ["localhost:8001"]
-host_files = ["index.html"]
+index = "index.html"
 
 [get_routes]
+direct = ["index.html"]
 "style.css" = "style.css"
 "favicon.ico" = { type = "image/png", path = "favicon.png" }
