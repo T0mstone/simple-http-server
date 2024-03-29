@@ -1,102 +1,128 @@
-// todo: better logging system
+// todo: better logging system (also in this module)
+mod log {
+	use std::process::exit;
 
-mod args {
+	use super::cli::PRINT_README_FLAG;
+
+	pub fn print_readme() -> ! {
+		println!("{}", include_str!("../README.md"));
+		exit(0)
+	}
+
+	pub struct CliMessages(pub Option<String>);
+
+	impl CliMessages {
+		pub fn print_usage(&self, success: bool) -> ! {
+			let this = self.0.as_deref().unwrap_or("<this>");
+
+			let output = format!(
+				"USAGE:
+	{this} [--] <path to config file>
+		Run the server normally
+	{this} -h|--help
+		Show this message and exit
+	{this} --{PRINT_README_FLAG}
+		Write out this software's documentation
+		in the form of a README.md file (to stdout)"
+			);
+			if success {
+				println!("{output}");
+			} else {
+				eprintln!("{output}");
+			}
+			std::process::exit(!success as i32)
+		}
+
+		#[inline]
+		pub fn print_help(&self) -> ! {
+			println!(concat!("simple-http-server v", env!("CARGO_PKG_VERSION")));
+			self.print_usage(true)
+		}
+
+		#[inline(always)]
+		pub fn err(&self, msg: impl std::fmt::Display) -> ! {
+			eprintln!("error: {msg}\n");
+			self.print_usage(false)
+		}
+
+		#[inline]
+		pub fn err_missing_config(&self) -> ! {
+			self.err("missing config argument")
+		}
+
+		#[inline]
+		pub fn err_invalid(&self, s: &str, double: bool) -> ! {
+			self.err(format_args!(
+				"`-{}{s}` is invalid",
+				if double { "-" } else { "" }
+			))
+		}
+	}
+}
+
+mod cli {
+	use std::ffi::OsString;
 	use std::path::PathBuf;
-	use std::sync::OnceLock;
+
+	use super::log::CliMessages;
 
 	pub struct Args {
 		pub config: PathBuf,
 	}
 
-	static INVOK: OnceLock<String> = OnceLock::new();
+	pub const PRINT_README_FLAG: &str = "dump-readme";
 
-	impl Args {
-		pub fn get() -> Self {
-			let mut args = std::env::args_os();
-			if let Some(invok) = args.next() {
-				let _ = INVOK.set(invok.to_string_lossy().to_string());
+	pub fn parse_env() -> Args {
+		let mut args = std::env::args_os();
+		let msg = CliMessages(args.next().map(|s| s.to_string_lossy().to_string()));
+
+		let Some(config) = args
+			.next()
+			.and_then(|arg| process_options(&msg, arg, args.next()))
+		else {
+			msg.err_missing_config()
+		};
+		if args.count() > 0 {
+			msg.err("too many arguments")
+		}
+
+		Args {
+			config: config.into(),
+		}
+	}
+
+	fn process_options(
+		msg: &CliMessages,
+		arg: OsString,
+		next: Option<OsString>,
+	) -> Option<OsString> {
+		match arg
+			.to_string_lossy()
+			.strip_prefix('-')
+			.map(|s| s.strip_prefix('-').ok_or(s))
+		{
+			None => {
+				// free arg
+				Some(arg)
 			}
-
-			let config;
-
-			let Some(arg) = args.next() else {
-				Self::missing_config()
-			};
-			match arg
-				.to_string_lossy()
-				.strip_prefix('-')
-				.map(|s| s.strip_prefix('-').ok_or(s))
-			{
-				None => {
-					// free arg => config file
-					config = arg.into();
-				}
-				Some(Err(s)) => {
-					// single `-` => option
-					match s {
-						"h" => Self::print_help(),
-						opt => Self::invalid(opt, false),
-					}
-				}
-				Some(Ok(s)) => {
-					// double `-` => flag
-					match s {
-						"" => {
-							// flags-end marker, so the config file may start with a `-`
-							let Some(arg) = args.next() else {
-								Self::missing_config()
-							};
-							config = arg.into();
-						}
-						"help" => Self::print_help(),
-						"dump-readme" => Self::dump_readme(),
-						flag => Self::invalid(flag, true),
-					}
+			Some(Err(s)) => {
+				// single `-` => option
+				match s {
+					"h" => msg.print_help(),
+					opt => msg.err_invalid(opt, false),
 				}
 			}
-			if args.count() > 0 {
-				eprintln!("error: too many arguments\n");
-				Self::print_help_body(false)
+			Some(Ok(s)) => {
+				// double `-` => flag
+				match s {
+					// empty means just `--`.
+					// This marks the end of any arg parsing, so the config file may start with a `-`
+					"" => next,
+					"help" => msg.print_help(),
+					PRINT_README_FLAG => super::log::print_readme(),
+					flag => msg.err_invalid(flag, true),
+				}
 			}
-
-			Self { config }
-		}
-
-		fn print_help_body(success: bool) -> ! {
-			let invok = INVOK.get().map(|s| &s[..]).unwrap_or("<this>");
-			let helpstr = format!(
-				"USAGE: {invok} [--] <path to config file>
-For more info, refer to the readme (run `{invok} --dump-readme`)"
-			);
-			if success {
-				println!("{helpstr}");
-			} else {
-				eprintln!("{helpstr}");
-			}
-			std::process::exit(!success as i32)
-		}
-
-		fn print_help() -> ! {
-			println!(concat!("simple-http-server v", env!("CARGO_PKG_VERSION")));
-			Self::print_help_body(true)
-		}
-
-		fn dump_readme() -> ! {
-			println!("{}", include_str!("../README.md"));
-			std::process::exit(0)
-		}
-
-		fn missing_config() -> ! {
-			eprintln!("error: missing config argument\n");
-			Self::print_help_body(false)
-		}
-
-		fn invalid(s: &str, double: bool) -> ! {
-			eprintln!(
-				"error: `-{}{s}` is invalid\n",
-				if double { "-" } else { "" }
-			);
-			Self::print_help_body(false)
 		}
 	}
 }
@@ -260,7 +286,7 @@ mod config {
 	}
 
 	impl Config {
-		pub fn new(args: crate::args::Args) -> Result<Self, String> {
+		pub fn new(args: crate::cli::Args) -> Result<Self, String> {
 			let err_open_file = |e| format!("failed to open file ({e})");
 
 			let s = std::fs::read_to_string(&args.config).map_err(err_open_file)?;
@@ -453,7 +479,7 @@ mod http {
 }
 
 fn main() {
-	let args = args::Args::get();
+	let args = cli::parse_env();
 
 	let cfg = match config::Config::new(args) {
 		Ok(x) => x,

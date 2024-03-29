@@ -1,6 +1,6 @@
 [package]
 name = "simple-http-server"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["T0mstone <realt0mstone@gmail.com>"]
 edition = "2021"
 
