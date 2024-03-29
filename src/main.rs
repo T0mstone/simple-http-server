@@ -8,7 +8,6 @@ use std::sync::OnceLock;
 use mime::Mime;
 use rouille::{Response, ResponseBody};
 use serde_derive::Deserialize;
-use thiserror::Error;
 
 // todo: better logging system
 
@@ -261,20 +260,13 @@ impl DerefMut for Config {
 	}
 }
 
-#[derive(Debug, Error)]
-pub enum LoadConfigError {
-	#[error("failed to open file ({0})")]
-	Open(#[from] std::io::Error),
-	#[error("malformed config file ({0})")]
-	Format(#[from] toml::de::Error),
-	#[error("invalid socket addrs")]
-	InvalidSocketAddrs,
-}
-
 impl Config {
-	pub fn new(args: Args) -> Result<Self, LoadConfigError> {
-		let s = std::fs::read_to_string(&args.config)?;
-		let mut content: ConfigContent = toml::from_str(&s)?;
+	pub fn new(args: Args) -> Result<Self, String> {
+		let err_open_file = |e| format!("failed to open file ({e})");
+
+		let s = std::fs::read_to_string(&args.config).map_err(err_open_file)?;
+		let mut content: ConfigContent =
+			toml::from_str(&s).map_err(|e| format!("malformed config file ({e})"))?;
 		let mut root = args
 			.config
 			.parent()
@@ -282,7 +274,7 @@ impl Config {
 			.to_path_buf();
 
 		if root.is_relative() {
-			root = std::env::current_dir()?.join(root);
+			root = std::env::current_dir().map_err(err_open_file)?.join(root);
 		}
 
 		// preprocess config
