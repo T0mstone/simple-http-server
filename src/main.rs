@@ -134,7 +134,7 @@ mod config {
 	use std::str::FromStr;
 
 	use mime::Mime;
-	use serde_derive::Deserialize;
+	use serde::Deserialize;
 
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	#[serde(untagged)]
@@ -351,134 +351,135 @@ mod config {
 }
 
 mod http {
-	use std::net::{SocketAddr, ToSocketAddrs};
+	use std::net::ToSocketAddrs;
+	use std::path::Path;
 
-	use rouille::{Response, ResponseBody};
+	use axum::body::Body;
+	use axum::handler::HandlerWithoutStateExt;
+	use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
+	use tokio::net::TcpListener;
 
-	const OK: u16 = 200;
-	const METHOD_NOT_ALLOWED: u16 = 405;
-	const INTERNAL_SERVER_ERROR: u16 = 500;
+	use super::config::Config;
 
-	struct SocketAddrs(Vec<String>);
+	pub async fn serve(config: Config) {
+		let Some(listener) =
+			setup_listener(std::iter::once(&config.addr).chain(&config.failsafe_addrs)).await
+		else {
+			return;
+		};
 
-	impl ToSocketAddrs for SocketAddrs {
-		type Iter = std::vec::IntoIter<SocketAddr>;
+		let (hm404, e404) = load_404(config.not_found.as_deref()).await;
+		let error_404 = (StatusCode::NOT_FOUND, hm404, e404);
 
-		fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
-			Ok(self
-				.0
-				.iter()
-				.flat_map(|s| match s.to_socket_addrs() {
-					// note: a single string can become multiple socket addrs if it e.g. is mapped to multiple ips in /etc/hosts
-					Ok(iter) => iter.map(Ok).collect(),
-					Err(e) => vec![Err(e)],
-				})
-				.collect::<std::io::Result<Vec<_>>>()?
-				.into_iter())
-		}
-	}
-
-	#[derive(Debug, Clone, Eq, PartialEq)]
-	pub struct HttpServer {
-		pub config: crate::config::Config,
-		cached_404: Option<Vec<u8>>,
-	}
-
-	impl HttpServer {
-		pub fn new(config: crate::config::Config) -> Self {
-			Self {
-				config,
-				cached_404: None,
-			}
-		}
-
-		pub fn empty_response(code: u16) -> Response {
-			Response {
-				status_code: code,
-				headers: vec![],
-				data: ResponseBody::empty(),
-				upgrade: None,
-			}
-		}
-
-		pub fn error_404(&self) -> Response {
-			self.cached_404
-				.clone()
-				.map_or_else(Response::empty_404, |d| {
-					Response::from_data("text/html", d).with_status_code(404)
-				})
-		}
-
-		pub fn io_error_response(&self, e: std::io::Error) -> Response {
+		let app = |request: Request<Body>| async move {
 			use std::io::ErrorKind;
 
-			match e.kind() {
-				ErrorKind::NotFound => self.error_404(),
-				_ => Response::text(format!("error opening file: {}", e))
-					.with_status_code(INTERNAL_SERVER_ERROR),
+			if request.method() != Method::GET {
+				// the server can only handle get requests
+				eprintln!("[error] blocked non-get request: {:?}", request);
+				return (StatusCode::METHOD_NOT_ALLOWED, HeaderMap::new(), Vec::new());
 			}
+
+			let (mime, path) = match config.resolve_route(request.uri().to_string()) {
+				None => {
+					eprintln!(
+						"[error] blocked request without configured route: GET {}",
+						request.uri()
+					);
+					return error_404.clone();
+				}
+				Some(x) => x,
+			};
+
+			let log_path = path
+				.strip_prefix(&config.file_dir)
+				.unwrap_or_else(|_| &path);
+			println!("[GET {}] open {:?}", request.uri(), log_path);
+
+			match tokio::fs::read(path).await {
+				Ok(v) => {
+					let hdr = match mime {
+						None => HeaderMap::new(),
+						Some(t) => {
+							let Ok(mime) = HeaderValue::from_str(t.as_ref()) else {
+								eprintln!("[error] invalid mime type for header: {t}");
+								return (
+									StatusCode::INTERNAL_SERVER_ERROR,
+									HeaderMap::new(),
+									Vec::new(),
+								);
+							};
+
+							mime_header(mime)
+						}
+					};
+					(StatusCode::OK, hdr, v)
+				}
+				Err(e) => match e.kind() {
+					ErrorKind::NotFound => error_404.clone(),
+					_ => (
+						StatusCode::INTERNAL_SERVER_ERROR,
+						mime_header(HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref())),
+						format!("error opening file: {e}").into_bytes(),
+					),
+				},
+			}
+		};
+
+		if let Err(e) = axum::serve(listener, app.into_make_service()).await {
+			eprintln!("[error] server failed: {e}");
 		}
+	}
 
-		pub fn run(mut self) {
-			let mut addrs = vec![self.config.addr.clone()];
-			addrs.append(&mut self.config.failsafe_addrs.clone());
-
-			if let Some(path) = &self.config.not_found {
-				match std::fs::read(path) {
-					Ok(data) => self.cached_404 = Some(data),
-					Err(e) => {
-						eprintln!("[error] failed to load 404 file: {}", e);
+	async fn setup_listener(addrs: impl Iterator<Item = &String>) -> Option<TcpListener> {
+		for s in addrs {
+			match s.to_socket_addrs() {
+				Err(e) => eprintln!("warning: no socket addr found for {s:?} ({e})"),
+				Ok(addrs) => {
+					for addr in addrs {
+						match TcpListener::bind(addr).await {
+							Err(e) => {
+								eprintln!("warning: failed to bind to address {s:?} = {addr} ({e})")
+							}
+							Ok(tcp) => {
+								println!("[info] listening on {addr}");
+								return Some(tcp);
+							}
+						}
 					}
 				}
 			}
-
-			if self.cached_404.is_some() {
-				println!("[info] loaded 404 file");
-			} else {
-				println!("[info] proceeding without 404 file");
-			}
-
-			rouille::start_server(SocketAddrs(addrs), move |request| {
-				if request.method() != "GET" {
-					// the server can only handle get requests
-					eprintln!("[error] blocked non-get request: {:?}", request);
-					return Self::empty_response(METHOD_NOT_ALLOWED);
-				}
-
-				let (mime, path) = match self.config.resolve_route(request.url()) {
-					None => {
-						eprintln!(
-							"[error] blocked request without configured route: GET {}",
-							request.url()
-						);
-						return self.error_404();
-					}
-					Some(x) => x,
-				};
-
-				let log_path = path
-					.strip_prefix(&self.config.file_dir)
-					.unwrap_or_else(|_| &path);
-				println!("[GET {}] open {:?}", request.url(), log_path);
-
-				match std::fs::read(path) {
-					Ok(v) => match mime {
-						None => Response {
-							status_code: OK,
-							headers: vec![],
-							data: ResponseBody::from_data(v),
-							upgrade: None,
-						},
-						Some(t) => Response::from_data(t.to_string(), v),
-					},
-					Err(e) => self.io_error_response(e),
-				}
-			})
 		}
+		None
+	}
+
+	async fn load_404(path: Option<&Path>) -> (HeaderMap, Vec<u8>) {
+		if let Some(path) = path {
+			match std::fs::read(path) {
+				Ok(data) => {
+					println!("[info] loaded 404 file");
+					return (
+						mime_header(HeaderValue::from_static(mime::TEXT_HTML.as_ref())),
+						data,
+					);
+				}
+				Err(e) => {
+					eprintln!("[error] failed to load 404 file: {e}");
+				}
+			}
+		} else {
+			println!("[info] proceeding without 404 file");
+		}
+		Default::default()
+	}
+
+	fn mime_header(mime: HeaderValue) -> HeaderMap {
+		HeaderMap::from_iter([(axum::http::header::CONTENT_TYPE, mime)])
 	}
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
 	let args = cli::parse_env();
 
 	let cfg = match config::Config::new(args) {
@@ -489,5 +490,5 @@ fn main() {
 		}
 	};
 
-	http::HttpServer::new(cfg).run()
+	http::serve(cfg).await
 }

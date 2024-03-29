@@ -1,12 +1,18 @@
 [package]
 name = "simple-http-server"
-version = "0.2.3"
+version = "0.3.0-alpha.1"
 authors = ["T0mstone <realt0mstone@gmail.com>"]
 edition = "2021"
 
+[features]
+default = ["http1", "http2"]
+
+http1 = ["axum/http1"]
+http2 = ["axum/http2"]
+
 [dependencies]
-rouille = "3"
-toml = "0.8"
-serde_derive = "1.0.193"
-serde = "1.0.193"
+axum = { version = "0.7", default-features = false, features = ["tokio"] }
 mime = "0.3"
+serde = { version = "1.0.193", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net"] }
+toml = "0.8"
