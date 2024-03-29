@@ -1,40 +1,112 @@
 use std::collections::HashMap;
-use std::io::Write;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::OnceLock;
 
 use mime::Mime;
 use rouille::{Response, ResponseBody};
 use serde_derive::Deserialize;
-use structopt::StructOpt;
 use thiserror::Error;
 
 // todo: better logging system
 
 ////// ARGS //////
 
-#[derive(StructOpt)]
-/// A simple configurable http server
 pub struct Args {
-	/// The path to the configuration file
-	///
-	/// For the format, refer to the README (--dump-readme)
-	#[structopt(
-		required_unless = "dump-readme",
-		default_value_if("dump-readme", None, "")
-	)]
 	pub config: PathBuf,
-	/// Prints the REAMDE and exits (you don't need to provide a config)
-	#[structopt(long)]
-	pub dump_readme: bool,
 }
 
+static INVOK: OnceLock<String> = OnceLock::new();
+
 impl Args {
-	#[inline]
 	pub fn get() -> Self {
-		Self::from_args()
+		let mut args = std::env::args_os();
+		if let Some(invok) = args.next() {
+			let _ = INVOK.set(invok.to_string_lossy().to_string());
+		}
+
+		let config;
+
+		let Some(arg) = args.next() else {
+			Self::missing_config()
+		};
+		match arg
+			.to_string_lossy()
+			.strip_prefix('-')
+			.map(|s| s.strip_prefix('-').ok_or(s))
+		{
+			None => {
+				// free arg => config file
+				config = arg.into();
+			}
+			Some(Err(s)) => {
+				// single `-` => option
+				match s {
+					"h" => Self::print_help(),
+					opt => Self::invalid(opt, false),
+				}
+			}
+			Some(Ok(s)) => {
+				// double `-` => flag
+				match s {
+					"" => {
+						// flags-end marker, so the config file may start with a `-`
+						let Some(arg) = args.next() else {
+							Self::missing_config()
+						};
+						config = arg.into();
+					}
+					"help" => Self::print_help(),
+					"dump-readme" => Self::dump_readme(),
+					flag => Self::invalid(flag, true),
+				}
+			}
+		}
+		if args.count() > 0 {
+			eprintln!("error: too many arguments\n");
+			Self::print_help_body(false)
+		}
+
+		Self { config }
+	}
+
+	fn print_help_body(success: bool) -> ! {
+		let invok = INVOK.get().map(|s| &s[..]).unwrap_or("<this>");
+		let helpstr = format!(
+			"USAGE: {invok} [--] <path to config file>
+For more info, refer to the readme (run `{invok} --dump-readme`)"
+		);
+		if success {
+			println!("{helpstr}");
+		} else {
+			eprintln!("{helpstr}");
+		}
+		std::process::exit(!success as i32)
+	}
+
+	fn print_help() -> ! {
+		println!(concat!("simple-http-server v", env!("CARGO_PKG_VERSION")));
+		Self::print_help_body(true)
+	}
+
+	fn dump_readme() -> ! {
+		println!("{}", include_str!("../README.md"));
+		std::process::exit(0)
+	}
+
+	fn missing_config() -> ! {
+		eprintln!("error: missing config argument\n");
+		Self::print_help_body(false)
+	}
+
+	fn invalid(s: &str, double: bool) -> ! {
+		eprintln!(
+			"error: `-{}{s}` is invalid\n",
+			if double { "-" } else { "" }
+		);
+		Self::print_help_body(false)
 	}
 }
 
@@ -378,16 +450,8 @@ impl HttpServer {
 	}
 }
 
-const README: &str = include_str!("../README.md");
-
 fn main() {
 	let args = Args::get();
-
-	if args.dump_readme {
-		print!("{}", README);
-		let _ = std::io::stdout().flush();
-		return;
-	}
 
 	let cfg = match Config::new(args) {
 		Ok(x) => x,

@@ -1,12 +1,11 @@
 [package]
 name = "simple-http-server"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["T0mstone <realt0mstone@gmail.com>"]
 edition = "2021"
 
 [dependencies]
 rouille = "3"
-structopt = "0.3.20"
 toml = "0.8"
 serde_derive = "1.0.193"
 serde = "1.0.193"
