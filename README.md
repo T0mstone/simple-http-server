@@ -18,16 +18,16 @@ All relative file paths are interpreted as relative to the config file.
 (1): Trying stops once a working one is found and that one is then used
 #### Sections
 - 'get_routes' (optional): specify which GET request paths lead to which files (the values are FileObjects)
-  - the special (optional) 'direct' key has to be a list of FileObjects, each of which routes to itself (2)
+  - the special (optional) 'direct' key has to be a list of FileObjects.
+    This is a shorthand for directly using the GET request path to read the file.
+    For that reason, absolute paths outside of the config file's directory are disallowed here.
+    Examples:
+    - `direct = ["a/b"]` is equivalent to `"a/b" = "a/b"`
+    - `direct = [{ type = "t", path = "a/b" }]` is equivalent to `"a/b" = { type = "t", path = "a/b" }`
   - a route to `direct` can be configured using the key `%direct` instead
 
-(2): see this table:
-| entry in 'direct' | equivalent entry in 'get_routes' |
---- | ---
-|`"a/b"`|`"a/b" = "a/b"`|
-|`{ type = "t", path = "a/b" }`|`"a/b" = { type = "t", path = "a/b" }`|
 #### Other
-- A FileObject is either a path (relative or absolute) or a map of the form '{ type = <mime type>, path = <path> }'
+- A FileObject is either a path (relative or absolute) or a map of the form `{ type = <mime type>, path = <path> }`
 - Currently supported inferred Media Types are
     - `text/plain` from `.txt`
     - `text/html` from `.html`

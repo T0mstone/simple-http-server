@@ -139,29 +139,29 @@ mod config {
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	#[serde(untagged)]
 	pub enum FileObject {
-		InferMIME(PathBuf),
-		ExplicitMIME { r#type: String, path: PathBuf },
+		InferMime(PathBuf),
+		ExplicitMime { r#type: String, path: PathBuf },
 	}
 
 	impl FileObject {
 		pub fn path(&self) -> &Path {
 			match self {
-				FileObject::InferMIME(p) => p,
-				FileObject::ExplicitMIME { path, .. } => path,
+				FileObject::InferMime(p) => p,
+				FileObject::ExplicitMime { path, .. } => path,
 			}
 		}
 
 		pub fn path_mut(&mut self) -> &mut PathBuf {
 			match self {
-				FileObject::InferMIME(p) => p,
-				FileObject::ExplicitMIME { path, .. } => path,
+				FileObject::InferMime(p) => p,
+				FileObject::ExplicitMime { path, .. } => path,
 			}
 		}
 
 		pub fn process(self) -> (Option<Mime>, PathBuf) {
 			match self {
-				FileObject::ExplicitMIME { r#type, path } => (Mime::from_str(&r#type).ok(), path),
-				FileObject::InferMIME(path) => {
+				FileObject::ExplicitMime { r#type, path } => (Mime::from_str(&r#type).ok(), path),
+				FileObject::InferMime(path) => {
 					let mime = path
 						.extension()
 						.and_then(|e| e.to_str())
@@ -185,18 +185,20 @@ mod config {
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	pub struct GetRoutes {
 		#[serde(default)]
-		#[serde(rename = "direct")]
-		pub short: Vec<FileObject>,
+		pub direct: Vec<FileObject>,
 		#[serde(default)]
 		#[serde(flatten)]
-		pub long: HashMap<String, FileObject>,
+		pub map: HashMap<String, FileObject>,
 	}
 
 	impl GetRoutes {
-		pub fn remove_parent_files(mut self, root: &Path) -> (Vec<FileObject>, Vec<String>, Self) {
+		pub fn sanitize_direct_routes(
+			mut self,
+			root: &Path,
+		) -> (Vec<FileObject>, Vec<String>, Self) {
 			debug_assert!(root.is_absolute());
 			let made_to_rel = self
-				.short
+				.direct
 				.iter_mut()
 				.filter_map(|r| {
 					r.path()
@@ -212,24 +214,22 @@ mod config {
 				.collect();
 			let mut abs = vec![];
 			let mut rel = vec![];
-			for r in self.short {
+			for r in self.direct {
 				if r.path().is_absolute() {
 					abs.push(r);
 				} else {
 					rel.push(r);
 				}
 			}
-			// paths in `abs` are not children of the directory that the config file is in
-			// and thus wouldn't be reachable from the short routing list
 			(abs, made_to_rel, Self {
-				short: rel,
-				long: self.long,
+				direct: rel,
+				map: self.map,
 			})
 		}
 
-		pub fn resolve_route<S: AsRef<str>>(
+		pub fn resolve_route(
 			&self,
-			url: S,
+			url: impl AsRef<str>,
 			index: Option<&PathBuf>,
 		) -> Option<FileObject> {
 			let mut url = url.as_ref();
@@ -237,18 +237,18 @@ mod config {
 				url = "%direct";
 			}
 			match url.strip_prefix('/').unwrap_or(url) {
-				"" => index.map(|p| FileObject::ExplicitMIME {
+				"" => index.map(|p| FileObject::ExplicitMime {
 					r#type: "text/html".to_string(),
 					path: p.clone(),
 				}),
 				s => self
-					.short
+					.direct
 					.iter()
 					.find({
 						let path: &Path = s.as_ref();
 						move |r| r.path() == path
 					})
-					.or_else(|| self.long.get(s))
+					.or_else(|| self.map.get(s))
 					.cloned(),
 			}
 		}
@@ -304,7 +304,7 @@ mod config {
 
 			// preprocess config
 			if let Some(gr) = &mut content.get_routes {
-				let (parent, to_rel, mut new_gr) = gr.clone().remove_parent_files(&root);
+				let (parent, to_rel, mut new_gr) = gr.clone().sanitize_direct_routes(&root);
 				// todo: better diagnostics
 				if !parent.is_empty() {
 					eprintln!(
@@ -320,10 +320,10 @@ mod config {
 				}
 				// convert all paths to absolute
 				for path in new_gr
-					.short
+					.direct
 					.iter_mut()
 					.map(|r| r.path_mut())
-					.chain(new_gr.long.values_mut().map(|r| r.path_mut()))
+					.chain(new_gr.map.values_mut().map(|r| r.path_mut()))
 					.chain(content.index.as_mut())
 					.chain(content.not_found.as_mut())
 				{
@@ -340,7 +340,7 @@ mod config {
 			})
 		}
 
-		pub fn resolve_route<S: AsRef<str>>(&self, url: S) -> Option<(Option<Mime>, PathBuf)> {
+		pub fn resolve_route(&self, url: impl AsRef<str>) -> Option<(Option<Mime>, PathBuf)> {
 			let route = self
 				.get_routes
 				.as_ref()?
