@@ -5,7 +5,7 @@ All the configuration is done in a config file,
 which is passed to the binary as the first argument.
 
 ## Config file format
-The file format is TOML.\
+The file format is [TOML](https://toml.io/).\
 All relative file paths are interpreted as relative to the config file.
 
 #### Global keys
