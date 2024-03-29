@@ -112,33 +112,32 @@ For more info, refer to the readme (run `{invok} --dump-readme`)"
 
 ////// CONFIG //////
 
-// note: RouteFile is called FileObject in the docs
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 #[serde(untagged)]
-pub enum RouteFile {
+pub enum FileObject {
 	InferMIME(PathBuf),
 	ExplicitMIME { r#type: String, path: PathBuf },
 }
 
-impl RouteFile {
+impl FileObject {
 	pub fn path(&self) -> &Path {
 		match self {
-			RouteFile::InferMIME(p) => p,
-			RouteFile::ExplicitMIME { path, .. } => path,
+			FileObject::InferMIME(p) => p,
+			FileObject::ExplicitMIME { path, .. } => path,
 		}
 	}
 
 	pub fn path_mut(&mut self) -> &mut PathBuf {
 		match self {
-			RouteFile::InferMIME(p) => p,
-			RouteFile::ExplicitMIME { path, .. } => path,
+			FileObject::InferMIME(p) => p,
+			FileObject::ExplicitMIME { path, .. } => path,
 		}
 	}
 
 	pub fn process(self) -> (Option<Mime>, PathBuf) {
 		match self {
-			RouteFile::ExplicitMIME { r#type, path } => (Mime::from_str(&r#type).ok(), path),
-			RouteFile::InferMIME(path) => {
+			FileObject::ExplicitMIME { r#type, path } => (Mime::from_str(&r#type).ok(), path),
+			FileObject::InferMIME(path) => {
 				let mime = path
 					.extension()
 					.and_then(|e| e.to_str())
@@ -163,14 +162,14 @@ impl RouteFile {
 pub struct GetRoutes {
 	#[serde(default)]
 	#[serde(rename = "direct")]
-	pub short: Vec<RouteFile>,
+	pub short: Vec<FileObject>,
 	#[serde(default)]
 	#[serde(flatten)]
-	pub long: HashMap<String, RouteFile>,
+	pub long: HashMap<String, FileObject>,
 }
 
 impl GetRoutes {
-	pub fn remove_parent_files(mut self, root: &Path) -> (Vec<RouteFile>, Vec<String>, Self) {
+	pub fn remove_parent_files(mut self, root: &Path) -> (Vec<FileObject>, Vec<String>, Self) {
 		debug_assert!(root.is_absolute());
 		let made_to_rel = self
 			.short
@@ -208,13 +207,13 @@ impl GetRoutes {
 		&self,
 		url: S,
 		index: Option<&PathBuf>,
-	) -> Option<RouteFile> {
+	) -> Option<FileObject> {
 		let mut url = url.as_ref();
 		if url == "direct" {
 			url = "%direct";
 		}
 		match url.strip_prefix("/").unwrap_or(url) {
-			"" => index.map(|p| RouteFile::ExplicitMIME {
+			"" => index.map(|p| FileObject::ExplicitMIME {
 				r#type: "text/html".to_string(),
 				path: p.clone(),
 			}),
