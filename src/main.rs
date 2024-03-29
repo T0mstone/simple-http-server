@@ -236,7 +236,7 @@ mod config {
 			if url == "direct" {
 				url = "%direct";
 			}
-			match url.strip_prefix("/").unwrap_or(url) {
+			match url.strip_prefix('/').unwrap_or(url) {
 				"" => index.map(|p| FileObject::ExplicitMIME {
 					r#type: "text/html".to_string(),
 					path: p.clone(),
