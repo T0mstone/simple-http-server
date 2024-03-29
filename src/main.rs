@@ -291,10 +291,16 @@ impl Config {
 			let (parent, to_rel, mut new_gr) = gr.clone().remove_parent_files(&root);
 			// todo: better diagnostics
 			if !parent.is_empty() {
-				eprintln!("ignoring {} direct files with absolute paths that are not children of the config directory", parent.len());
+				eprintln!(
+					"ignoring {} direct files with absolute paths that are not children of the config directory",
+					parent.len()
+				);
 			}
 			if !to_rel.is_empty() {
-				println!("[info] converted {} direct files witha absolute paths in the config directory to relative paths", to_rel.len());
+				println!(
+					"[info] converted {} direct files witha absolute paths in the config directory to relative paths",
+					to_rel.len()
+				);
 			}
 			// convert all paths to absolute
 			for path in new_gr
@@ -430,7 +436,8 @@ impl HttpServer {
 				Some(x) => x,
 			};
 
-			let log_path = path.strip_prefix(&self.config.file_dir)
+			let log_path = path
+				.strip_prefix(&self.config.file_dir)
 				.unwrap_or_else(|_| &path);
 			println!("[GET {}] open {:?}", request.url(), log_path);
 
