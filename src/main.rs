@@ -252,9 +252,7 @@ mod config {
 
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	pub struct Unspecial {
-		#[serde(default)]
 		pub unspecial: Option<FileObject>,
-		#[serde(default)]
 		pub direct: Option<FileObject>,
 	}
 
@@ -270,9 +268,7 @@ mod config {
 	pub struct GetRoutes {
 		#[serde(default)]
 		pub direct: Vec<FileObject>,
-		#[serde(default)]
 		pub unspecial: Option<Unspecial>,
-		#[serde(default)]
 		#[serde(flatten)]
 		pub map: HashMap<String, FileObject>,
 	}
