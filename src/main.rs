@@ -161,13 +161,36 @@ mod cli {
 mod config {
 	use std::collections::HashMap;
 	use std::ops::{Deref, DerefMut};
+	use std::path::PathBuf;
 	use std::str::FromStr;
 
-	use camino::{Utf8Path, Utf8PathBuf};
+	use camino::Utf8PathBuf;
 	use mime::Mime;
 	use serde::Deserialize;
 
 	use super::log;
+
+	#[derive(Debug, Clone)]
+	enum HybridPathBuf {
+		Utf8(Utf8PathBuf),
+		NonUtf8(PathBuf),
+	}
+
+	impl HybridPathBuf {
+		pub fn from_std_path_buf(path: PathBuf) -> Self {
+			match Utf8PathBuf::from_path_buf(path) {
+				Ok(p) => Self::Utf8(p),
+				Err(p) => Self::NonUtf8(p),
+			}
+		}
+
+		pub fn is_absolute(&self) -> bool {
+			match self {
+				Self::Utf8(p) => p.is_absolute(),
+				Self::NonUtf8(p) => p.is_absolute(),
+			}
+		}
+	}
 
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	#[serde(untagged)]
@@ -177,7 +200,7 @@ mod config {
 	}
 
 	impl FileObject {
-		pub fn path(&self) -> &Utf8Path {
+		pub fn path(&self) -> &Utf8PathBuf {
 			match self {
 				FileObject::InferMime(p) => p,
 				FileObject::ExplicitMime { path, .. } => path,
@@ -191,7 +214,14 @@ mod config {
 			}
 		}
 
-		pub fn process(self) -> (Option<Mime>, Utf8PathBuf) {
+		pub fn into_path(self) -> Utf8PathBuf {
+			match self {
+				FileObject::InferMime(p) => p,
+				FileObject::ExplicitMime { path, .. } => path,
+			}
+		}
+
+		pub fn into_mime_and_path(self) -> (Option<Mime>, Utf8PathBuf) {
 			match self {
 				FileObject::ExplicitMime { r#type, path } => (Mime::from_str(&r#type).ok(), path),
 				FileObject::InferMime(path) => {
@@ -229,56 +259,52 @@ mod config {
 		pub map: HashMap<String, FileObject>,
 	}
 
+	struct RelativizeReport {
+		/// `direct` paths that weren't descendants of the root path
+		parent: Vec<Utf8PathBuf>,
+		/// `direct` paths that were converted to relative paths
+		made_to_rel: Vec<(Utf8PathBuf, Utf8PathBuf)>,
+	}
+
 	impl GetRoutes {
-		pub fn sanitize_direct_routes(
-			mut self,
-			root: &Utf8Path,
-		) -> (Vec<FileObject>, Vec<String>, Self) {
+		fn relativize_direct_routes(&mut self, root: &HybridPathBuf) -> RelativizeReport {
 			debug_assert!(root.is_absolute());
+
 			let made_to_rel = self
 				.direct
 				.iter_mut()
-				.filter_map(|r| {
-					r.path()
+				.filter_map(|f| {
+					let HybridPathBuf::Utf8(root) = root else {
+						// Since `root` isn't UTF-8, `r.path` is guaranteed to not be a descendant of `root`
+						return None;
+					};
+					f.path()
 						.strip_prefix(root)
 						.ok()
 						.map(|rel| rel.to_path_buf())
 						.map(|rel| {
-							let res = rel.to_string();
-							*r.path_mut() = rel;
-							res
+							let abs = std::mem::replace(f.path_mut(), rel.clone());
+							(abs, rel)
 						})
 				})
 				.collect();
-			let mut abs = vec![];
-			let mut rel = vec![];
-			for r in self.direct {
-				if r.path().is_absolute() {
-					abs.push(r);
+
+			let mut parent = vec![];
+			let mut kept_direct = vec![];
+			for f in self.direct.drain(..) {
+				if f.path().is_absolute() {
+					// all paths that are now still absolute failed to be made relative
+					parent.push(f.into_path());
 				} else {
-					rel.push(r);
+					kept_direct.push(f);
 				}
 			}
-			(abs, made_to_rel, Self {
-				direct: rel,
-				map: self.map,
-			})
-		}
+			self.direct = kept_direct;
 
-		pub fn resolve_route(&self, url: impl AsRef<str>) -> Option<FileObject> {
-			let mut url = url.as_ref();
-			if url == "direct" {
-				url = "%direct";
+			RelativizeReport {
+				parent,
+				made_to_rel,
 			}
-			let s = url.strip_prefix('/').unwrap_or(url);
-			self.direct
-				.iter()
-				.find({
-					let path: &Utf8Path = s.as_ref();
-					move |r| r.path() == path
-				})
-				.or_else(|| self.map.get(s))
-				.cloned()
 		}
 	}
 
@@ -292,10 +318,15 @@ mod config {
 		pub get_routes: Option<GetRoutes>,
 	}
 
-	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
+	#[derive(Debug, Clone, Eq, PartialEq)]
 	pub struct Config {
-		pub file_dir: Utf8PathBuf,
+		/// The path the config file is in, used for logging.
+		pub file_dir: PathBuf,
 		pub content: ConfigContent,
+		/// The processed get routes with absolute paths
+		pub get_routes: HashMap<String, (Option<Mime>, PathBuf)>,
+		/// The processed `not_found` absolute path
+		pub not_found: Option<PathBuf>,
 	}
 
 	impl Deref for Config {
@@ -313,65 +344,87 @@ mod config {
 	}
 
 	impl Config {
+		fn get_root(config_path: &std::path::Path) -> Result<PathBuf, String> {
+			let mut root = config_path
+				.parent()
+				.ok_or_else(|| "config file path has no parent directory".to_string())?
+				.to_path_buf();
+
+			if root.is_relative() {
+				root = std::env::current_dir()
+					.map_err(|e| format!("failed to get current dir ({e})"))?
+					.join(root);
+			}
+
+			Ok(root)
+		}
+
 		pub fn new(args: crate::cli::Args) -> Result<Self, String> {
 			let err_open_file = |e| format!("failed to open file ({e})");
 
 			let s = std::fs::read_to_string(&args.config).map_err(err_open_file)?;
 			let mut content: ConfigContent =
 				toml::from_str(&s).map_err(|e| format!("malformed config file ({e})"))?;
-			let mut root = args
-				.config
-				.parent()
-				.expect("config file path has no parent directory")
-				.to_path_buf();
 
-			if root.is_relative() {
-				root = std::env::current_dir().map_err(err_open_file)?.join(root);
-			}
+			let root = Self::get_root(&args.config)?;
 
-			let root = Utf8PathBuf::from_path_buf(root)
-				.map_err(|p| format!("config file is in non-UTF8 path: {p:?}"))?;
-
-			// preprocess config
+			let mut get_routes = HashMap::new();
+			let mut not_found = None;
 			if let Some(gr) = &mut content.get_routes {
-				let (parent, to_rel, mut new_gr) = gr.clone().sanitize_direct_routes(&root);
-				// todo: better diagnostics
-				if !parent.is_empty() {
+				let root_h = HybridPathBuf::from_std_path_buf(root.clone());
+				let RelativizeReport {
+					parent,
+					made_to_rel,
+				} = gr.relativize_direct_routes(&root_h);
+				for path in parent {
 					log::warn(format_args!(
-						"ignoring {} direct files with absolute paths that are not children of the config directory",
-						parent.len()
+						"ignoring {path:?} (absolute paths in `direct` must be descendants of the config file's directory)",
 					));
 				}
-				if !to_rel.is_empty() {
+				for (abs, rel) in made_to_rel {
 					log::info(format_args!(
-						"converted {} direct files witha absolute paths in the config directory to relative paths",
-						to_rel.len()
+						"converted {abs:?} to the relative path {rel:?}",
 					));
 				}
-				// convert all paths to absolute
-				for path in new_gr
-					.direct
-					.iter_mut()
-					.map(|r| r.path_mut())
-					.chain(new_gr.map.values_mut().map(|r| r.path_mut()))
-					.chain(content.not_found.as_mut())
-				{
+
+				// note: The originals aren't used after this, so draining should be fine here
+				for (k, f) in gr.map.drain() {
+					let (mime, path) = f.into_mime_and_path();
 					if path.is_relative() {
-						*path = root.join(&*path);
+						get_routes.insert(k, (mime, root.join(path.as_std_path())));
 					}
 				}
-				*gr = new_gr;
+				// note: the order matters here. Handling `direct` after `map` means that `direct` takes priority
+				for f in gr.direct.drain(..) {
+					let (mime, path) = f.into_mime_and_path();
+					if path.is_relative() {
+						get_routes.insert(path.to_string(), (mime, root.join(path.as_std_path())));
+					}
+				}
+				not_found = content.not_found.take().map(|p| root.join(p.as_std_path()));
 			}
 
 			Ok(Self {
 				file_dir: root,
 				content,
+				get_routes,
+				not_found,
 			})
 		}
 
-		pub fn resolve_route(&self, url: impl AsRef<str>) -> Option<(Option<Mime>, Utf8PathBuf)> {
-			let route = self.get_routes.as_ref()?.resolve_route(url)?;
-			Some(route.process())
+		pub fn resolve_route(
+			&self,
+			url: impl AsRef<str>,
+		) -> Option<(Option<&Mime>, &std::path::Path)> {
+			let mut url = url.as_ref();
+			url = url.strip_prefix('/').unwrap_or(url);
+			if url == "direct" {
+				url = "%direct";
+			}
+			self.get_routes
+				.get(url)
+				.as_ref()
+				.map(|(l, r)| (l.as_ref(), r.as_path()))
 		}
 	}
 }
@@ -449,13 +502,11 @@ mod http {
 			Some(x) => x,
 		};
 
-		let log_path = path
-			.strip_prefix(&config.file_dir)
-			.unwrap_or_else(|_| &path);
+		let log_path = path.strip_prefix(&config.file_dir).unwrap_or(path);
 		log::get(request.uri(), format_args!("open {:?}", log_path));
 
 		match tokio::fs::read(&path).await {
-			Ok(v) => Response::MimeBody(StatusCode::OK, mime.map(SetMime), v),
+			Ok(v) => Response::MimeBody(StatusCode::OK, mime.cloned().map(SetMime), v),
 			Err(e) => {
 				log::error(format_args!("I/O error at {path:?}: {e}"));
 				match e.kind() {
