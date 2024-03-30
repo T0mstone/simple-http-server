@@ -1,5 +1,11 @@
-// todo: better logging system (also in this module)
+// note the intentional distinction between stdout and stderr:
+// stdout is only for things that should be considered *output* of the program,
+// so all info, warning and error messages go to stderr.
+//
+// also note that there is no context (like `tracing` or `async-log`) for the logs,
+// but that's fine since all log messages are atomic.
 mod log {
+	use std::fmt::Display;
 	use std::process::exit;
 
 	use super::cli::PRINT_README_FLAG;
@@ -41,7 +47,8 @@ mod log {
 
 		#[inline(always)]
 		pub fn err(&self, msg: impl std::fmt::Display) -> ! {
-			eprintln!("error: {msg}\n");
+			error(msg);
+			eprintln!(/* blank line for spacing */);
 			self.print_usage(false)
 		}
 
@@ -57,6 +64,30 @@ mod log {
 				if double { "-" } else { "" }
 			))
 		}
+	}
+
+	pub fn error(e: impl Display) {
+		eprintln!("[error] {e}");
+	}
+
+	pub fn warn(w: impl Display) {
+		eprintln!("[warn] {w}");
+	}
+
+	pub fn info(i: impl Display) {
+		eprintln!("[info] {i}");
+	}
+
+	/// log a GET request
+	pub fn get(uri: impl Display, m: impl Display) {
+		// this is to stdout, since what it does with requests *does* count as the output of the program!
+		println!("[GET {uri}] {m}");
+	}
+
+	/// log an unspecified request
+	pub fn req(m: impl Display) {
+		// same as with `get`
+		println!("[!] {m}");
 	}
 }
 
@@ -135,6 +166,8 @@ mod config {
 
 	use mime::Mime;
 	use serde::Deserialize;
+
+	use super::log;
 
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	#[serde(untagged)]
@@ -307,16 +340,16 @@ mod config {
 				let (parent, to_rel, mut new_gr) = gr.clone().sanitize_direct_routes(&root);
 				// todo: better diagnostics
 				if !parent.is_empty() {
-					eprintln!(
+					log::warn(format_args!(
 						"ignoring {} direct files with absolute paths that are not children of the config directory",
 						parent.len()
-					);
+					));
 				}
 				if !to_rel.is_empty() {
-					println!(
-						"[info] converted {} direct files witha absolute paths in the config directory to relative paths",
+					log::info(format_args!(
+						"converted {} direct files witha absolute paths in the config directory to relative paths",
 						to_rel.len()
-					);
+					));
 				}
 				// convert all paths to absolute
 				for path in new_gr
@@ -363,6 +396,7 @@ mod http {
 	use tokio::net::TcpListener;
 
 	use super::config::Config;
+	use super::log;
 
 	#[derive(Debug, Clone)]
 	struct SetMime(Mime);
@@ -410,16 +444,13 @@ mod http {
 
 		if request.method() != Method::GET {
 			// the server can only handle get requests
-			eprintln!("[error] blocked non-get request: {:?}", request);
+			log::req(format_args!("unsupported request: {:?}", request));
 			return Response::PureCode(StatusCode::METHOD_NOT_ALLOWED);
 		}
 
 		let (mime, path) = match config.resolve_route(request.uri().to_string()) {
 			None => {
-				eprintln!(
-					"[error] blocked request without configured route: GET {}",
-					request.uri()
-				);
+				log::get(request.uri(), "blocked (no configured route)");
 				return error_404.clone();
 			}
 			Some(x) => x,
@@ -428,18 +459,22 @@ mod http {
 		let log_path = path
 			.strip_prefix(&config.file_dir)
 			.unwrap_or_else(|_| &path);
-		println!("[GET {}] open {:?}", request.uri(), log_path);
+		log::get(request.uri(), format_args!("open {:?}", log_path));
 
-		match tokio::fs::read(path).await {
+		match tokio::fs::read(&path).await {
 			Ok(v) => Response::MimeBody(StatusCode::OK, mime.map(SetMime), v),
-			Err(e) => match e.kind() {
-				ErrorKind::NotFound => error_404.clone(),
-				_ => Response::MimeBody(
-					StatusCode::INTERNAL_SERVER_ERROR,
-					Some(SetMime(mime::TEXT_PLAIN_UTF_8)),
-					format!("error opening file: {e}").into_bytes(),
-				),
-			},
+			Err(e) => {
+				log::error(format_args!("I/O error at {path:?}: {e}"));
+				match e.kind() {
+					ErrorKind::NotFound => error_404.clone(),
+					_ => Response::MimeBody(
+						StatusCode::INTERNAL_SERVER_ERROR,
+						Some(SetMime(mime::TEXT_PLAIN_UTF_8)),
+						// for security reasons, the client doesn't get the specific error
+						"I/O error".to_string().into_bytes(),
+					),
+				}
+			}
 		}
 	}
 
@@ -455,22 +490,24 @@ mod http {
 		let app = move |request| async move { app(&config, &error_404, request).await };
 
 		if let Err(e) = axum::serve(listener, app.into_make_service()).await {
-			eprintln!("[error] server failed: {e}");
+			log::error(format_args!("server failed: {e}"));
 		}
 	}
 
 	async fn setup_listener(addrs: impl Iterator<Item = &String>) -> Option<TcpListener> {
 		for s in addrs {
 			match s.to_socket_addrs() {
-				Err(e) => eprintln!("warning: no socket addr found for {s:?} ({e})"),
+				Err(e) => log::warn(format_args!("no socket addr found for {s:?} ({e})")),
 				Ok(addrs) => {
 					for addr in addrs {
 						match TcpListener::bind(addr).await {
 							Err(e) => {
-								eprintln!("warning: failed to bind to address {s:?} = {addr} ({e})")
+								log::warn(format_args!(
+									"failed to bind to address {s:?} = {addr} ({e})"
+								));
 							}
 							Ok(tcp) => {
-								println!("[info] listening on {addr}");
+								log::info(format_args!("listening on {s:?} = {addr}"));
 								return Some(tcp);
 							}
 						}
@@ -485,7 +522,7 @@ mod http {
 		if let Some(path) = path {
 			match std::fs::read(path) {
 				Ok(data) => {
-					println!("[info] loaded 404 file");
+					log::info("loaded 404 file");
 					return Response::MimeBody(
 						StatusCode::NOT_FOUND,
 						Some(SetMime(mime::TEXT_HTML)),
@@ -493,11 +530,11 @@ mod http {
 					);
 				}
 				Err(e) => {
-					eprintln!("[error] failed to load 404 file: {e}");
+					log::error(format_args!("failed to load 404 file: {e}"));
 				}
 			}
 		} else {
-			println!("[info] proceeding without 404 file");
+			log::info("proceeding without 404 file");
 		}
 		Response::PureCode(StatusCode::NOT_FOUND)
 	}
@@ -510,7 +547,7 @@ async fn main() {
 	let cfg = match config::Config::new(args) {
 		Ok(x) => x,
 		Err(e) => {
-			eprintln!("Error while retrieving config: {}", e);
+			log::error(format_args!("failed to load config: {e}"));
 			return;
 		}
 	};
