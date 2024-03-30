@@ -252,15 +252,17 @@ mod config {
 
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	pub struct Unspecial {
-		pub unspecial: FileObject,
-		pub direct: FileObject,
+		#[serde(default)]
+		pub unspecial: Option<FileObject>,
+		#[serde(default)]
+		pub direct: Option<FileObject>,
 	}
 
 	impl Unspecial {
 		fn into_kv_iter(self) -> impl Iterator<Item = (String, FileObject)> {
 			[("unspecial", self.unspecial), ("direct", self.direct)]
 				.into_iter()
-				.map(|(k, f)| (k.to_string(), f))
+				.filter_map(|(k, f)| Some((k.to_string(), f?)))
 		}
 	}
 
