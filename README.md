@@ -24,7 +24,8 @@ All relative file paths are interpreted as relative to the config file.
     Examples:
     - `direct = ["a/b"]` is equivalent to `"a/b" = "a/b"`
     - `direct = [{ type = "t", path = "a/b" }]` is equivalent to `"a/b" = { type = "t", path = "a/b" }`
-  - a route to `direct` can be configured using the key `%direct` instead
+  - the special (optional) 'unspecial' subtable is used to configure routes to URLs
+    that would otherwise be parsed as special keys, i.e. 'direct' and 'unspecial'.
 
 #### Other
 - A FileObject is either a path (relative or absolute) or a map of the form `{ type = <mime type>, path = <path> }`

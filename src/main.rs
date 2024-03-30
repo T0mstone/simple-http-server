@@ -251,9 +251,25 @@ mod config {
 	}
 
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
+	pub struct Unspecial {
+		pub unspecial: FileObject,
+		pub direct: FileObject,
+	}
+
+	impl Unspecial {
+		fn into_kv_iter(self) -> impl Iterator<Item = (String, FileObject)> {
+			[("unspecial", self.unspecial), ("direct", self.direct)]
+				.into_iter()
+				.map(|(k, f)| (k.to_string(), f))
+		}
+	}
+
+	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	pub struct GetRoutes {
 		#[serde(default)]
 		pub direct: Vec<FileObject>,
+		#[serde(default)]
+		pub unspecial: Option<Unspecial>,
 		#[serde(default)]
 		#[serde(flatten)]
 		pub map: HashMap<String, FileObject>,
@@ -388,7 +404,12 @@ mod config {
 				}
 
 				// note: The originals aren't used after this, so draining should be fine here
-				for (k, f) in gr.map.drain() {
+				for (k, f) in gr.map.drain().chain(
+					gr.unspecial
+						.take()
+						.into_iter()
+						.flat_map(|u| u.into_kv_iter()),
+				) {
 					let (mime, path) = f.into_mime_and_path();
 					if path.is_relative() {
 						get_routes.insert(k, (mime, root.join(path.as_std_path())));
@@ -418,9 +439,6 @@ mod config {
 		) -> Option<(Option<&Mime>, &std::path::Path)> {
 			let mut url = url.as_ref();
 			url = url.strip_prefix('/').unwrap_or(url);
-			if url == "direct" {
-				url = "%direct";
-			}
 			self.get_routes
 				.get(url)
 				.as_ref()
