@@ -101,7 +101,7 @@ mod cli {
 		pub config: PathBuf,
 	}
 
-	pub const PRINT_README_FLAG: &str = "dump-readme";
+	pub const PRINT_README_FLAG: &str = "print-readme";
 
 	pub fn parse_env() -> Args {
 		let mut args = std::env::args_os();
