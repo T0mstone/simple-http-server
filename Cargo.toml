@@ -3,6 +3,7 @@ name = "simple-http-server"
 version = "0.3.0-alpha.1"
 authors = ["T0mstone <realt0mstone@gmail.com>"]
 edition = "2021"
+rust-version = "1.70"
 
 [features]
 default = ["http1", "http2"]
