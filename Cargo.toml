@@ -13,6 +13,7 @@ http2 = ["axum/http2"]
 
 [dependencies]
 axum = { version = "0.7", default-features = false, features = ["tokio"] }
+camino = { version = "1", features = ["serde1"] }
 mime = "0.3"
 serde = { version = "1.0.145", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net"] }

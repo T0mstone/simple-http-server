@@ -161,9 +161,9 @@ mod cli {
 mod config {
 	use std::collections::HashMap;
 	use std::ops::{Deref, DerefMut};
-	use std::path::{Path, PathBuf};
 	use std::str::FromStr;
 
+	use camino::{Utf8Path, Utf8PathBuf};
 	use mime::Mime;
 	use serde::Deserialize;
 
@@ -172,42 +172,39 @@ mod config {
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	#[serde(untagged)]
 	pub enum FileObject {
-		InferMime(PathBuf),
-		ExplicitMime { r#type: String, path: PathBuf },
+		InferMime(Utf8PathBuf),
+		ExplicitMime { r#type: String, path: Utf8PathBuf },
 	}
 
 	impl FileObject {
-		pub fn path(&self) -> &Path {
+		pub fn path(&self) -> &Utf8Path {
 			match self {
 				FileObject::InferMime(p) => p,
 				FileObject::ExplicitMime { path, .. } => path,
 			}
 		}
 
-		pub fn path_mut(&mut self) -> &mut PathBuf {
+		pub fn path_mut(&mut self) -> &mut Utf8PathBuf {
 			match self {
 				FileObject::InferMime(p) => p,
 				FileObject::ExplicitMime { path, .. } => path,
 			}
 		}
 
-		pub fn process(self) -> (Option<Mime>, PathBuf) {
+		pub fn process(self) -> (Option<Mime>, Utf8PathBuf) {
 			match self {
 				FileObject::ExplicitMime { r#type, path } => (Mime::from_str(&r#type).ok(), path),
 				FileObject::InferMime(path) => {
-					let mime = path
-						.extension()
-						.and_then(|e| e.to_str())
-						.and_then(|extension| match extension {
-							"txt" => Mime::from_str("text/plain").ok(),
-							"html" => Mime::from_str("text/html").ok(),
-							"css" => Mime::from_str("text/css").ok(),
-							"png" => Mime::from_str("image/png").ok(),
-							"mp4" | "m4v" => Mime::from_str("video/mp4").ok(),
-							// not an official mime type but the suggested one by matroska.org
-							"mkv" => Mime::from_str("video/x-matroska").ok(),
-							_ => None,
-						});
+					let mime = path.extension().and_then(|extension| match extension {
+						"txt" => Mime::from_str("text/plain").ok(),
+						"html" => Mime::from_str("text/html").ok(),
+						"css" => Mime::from_str("text/css").ok(),
+						"png" => Mime::from_str("image/png").ok(),
+						"mp4" | "m4v" => Mime::from_str("video/mp4").ok(),
+						// not an official mime type but the suggested one by matroska.org
+						"mkv" => Mime::from_str("video/x-matroska").ok(),
+						_ => None,
+					});
 
 					(mime, path)
 				}
@@ -227,7 +224,7 @@ mod config {
 	impl GetRoutes {
 		pub fn sanitize_direct_routes(
 			mut self,
-			root: &Path,
+			root: &Utf8Path,
 		) -> (Vec<FileObject>, Vec<String>, Self) {
 			debug_assert!(root.is_absolute());
 			let made_to_rel = self
@@ -239,7 +236,7 @@ mod config {
 						.ok()
 						.map(|rel| rel.to_path_buf())
 						.map(|rel| {
-							let res = rel.display().to_string();
+							let res = rel.to_string();
 							*r.path_mut() = rel;
 							res
 						})
@@ -263,7 +260,7 @@ mod config {
 		pub fn resolve_route(
 			&self,
 			url: impl AsRef<str>,
-			index: Option<&PathBuf>,
+			index: Option<&Utf8PathBuf>,
 		) -> Option<FileObject> {
 			let mut url = url.as_ref();
 			if url == "direct" {
@@ -278,7 +275,7 @@ mod config {
 					.direct
 					.iter()
 					.find({
-						let path: &Path = s.as_ref();
+						let path: &Utf8Path = s.as_ref();
 						move |r| r.path() == path
 					})
 					.or_else(|| self.map.get(s))
@@ -292,15 +289,15 @@ mod config {
 		pub addr: String,
 		#[serde(default)]
 		pub failsafe_addrs: Vec<String>,
-		pub index: Option<PathBuf>,
+		pub index: Option<Utf8PathBuf>,
 		#[serde(rename = "404")]
-		pub not_found: Option<PathBuf>,
+		pub not_found: Option<Utf8PathBuf>,
 		pub get_routes: Option<GetRoutes>,
 	}
 
 	#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
 	pub struct Config {
-		pub file_dir: PathBuf,
+		pub file_dir: Utf8PathBuf,
 		pub content: ConfigContent,
 	}
 
@@ -334,6 +331,9 @@ mod config {
 			if root.is_relative() {
 				root = std::env::current_dir().map_err(err_open_file)?.join(root);
 			}
+
+			let root = Utf8PathBuf::from_path_buf(root)
+				.map_err(|p| format!("config file is in non-UTF8 path: {p:?}"))?;
 
 			// preprocess config
 			if let Some(gr) = &mut content.get_routes {
@@ -373,7 +373,7 @@ mod config {
 			})
 		}
 
-		pub fn resolve_route(&self, url: impl AsRef<str>) -> Option<(Option<Mime>, PathBuf)> {
+		pub fn resolve_route(&self, url: impl AsRef<str>) -> Option<(Option<Mime>, Utf8PathBuf)> {
 			let route = self
 				.get_routes
 				.as_ref()?
@@ -485,7 +485,7 @@ mod http {
 			return;
 		};
 
-		let error_404 = load_404(config.not_found.as_deref()).await;
+		let error_404 = load_404(config.not_found.as_ref()).await;
 
 		let app = move |request| async move { app(&config, &error_404, request).await };
 
@@ -518,7 +518,7 @@ mod http {
 		None
 	}
 
-	async fn load_404(path: Option<&Path>) -> Response {
+	async fn load_404(path: Option<&impl AsRef<Path>>) -> Response {
 		if let Some(path) = path {
 			match std::fs::read(path) {
 				Ok(data) => {
