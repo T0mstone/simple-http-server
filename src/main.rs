@@ -356,10 +356,92 @@ mod http {
 
 	use axum::body::Body;
 	use axum::handler::HandlerWithoutStateExt;
+	use axum::http::header::CONTENT_TYPE;
 	use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
+	use axum::response::{IntoResponse, IntoResponseParts};
+	use mime::Mime;
 	use tokio::net::TcpListener;
 
 	use super::config::Config;
+
+	#[derive(Debug, Clone)]
+	struct SetMime(Mime);
+
+	impl IntoResponseParts for SetMime {
+		type Error = (StatusCode, HeaderMap, String);
+
+		fn into_response_parts(
+			self,
+			mut res: axum::response::ResponseParts,
+		) -> Result<axum::response::ResponseParts, Self::Error> {
+			let value = HeaderValue::from_str(self.0.as_ref()).map_err(|e| {
+				(
+					StatusCode::INTERNAL_SERVER_ERROR,
+					HeaderMap::from_iter([(
+						CONTENT_TYPE,
+						HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+					)]),
+					format!("invalid MIME type for header: {e}"),
+				)
+			})?;
+			res.headers_mut().insert(CONTENT_TYPE, value);
+			Ok(res)
+		}
+	}
+
+	#[derive(Debug, Clone)]
+	enum Response {
+		PureCode(StatusCode),
+		MimeBody(StatusCode, Option<SetMime>, Vec<u8>),
+	}
+
+	impl IntoResponse for Response {
+		fn into_response(self) -> axum::response::Response {
+			match self {
+				Self::PureCode(c) => c.into_response(),
+				Self::MimeBody(c, None, b) => (c, b).into_response(),
+				Self::MimeBody(c, Some(m), b) => (c, m, b).into_response(),
+			}
+		}
+	}
+
+	async fn app(config: &Config, error_404: &Response, request: Request<Body>) -> Response {
+		use std::io::ErrorKind;
+
+		if request.method() != Method::GET {
+			// the server can only handle get requests
+			eprintln!("[error] blocked non-get request: {:?}", request);
+			return Response::PureCode(StatusCode::METHOD_NOT_ALLOWED);
+		}
+
+		let (mime, path) = match config.resolve_route(request.uri().to_string()) {
+			None => {
+				eprintln!(
+					"[error] blocked request without configured route: GET {}",
+					request.uri()
+				);
+				return error_404.clone();
+			}
+			Some(x) => x,
+		};
+
+		let log_path = path
+			.strip_prefix(&config.file_dir)
+			.unwrap_or_else(|_| &path);
+		println!("[GET {}] open {:?}", request.uri(), log_path);
+
+		match tokio::fs::read(path).await {
+			Ok(v) => Response::MimeBody(StatusCode::OK, mime.map(SetMime), v),
+			Err(e) => match e.kind() {
+				ErrorKind::NotFound => error_404.clone(),
+				_ => Response::MimeBody(
+					StatusCode::INTERNAL_SERVER_ERROR,
+					Some(SetMime(mime::TEXT_PLAIN_UTF_8)),
+					format!("error opening file: {e}").into_bytes(),
+				),
+			},
+		}
+	}
 
 	pub async fn serve(config: Config) {
 		let Some(listener) =
@@ -368,63 +450,9 @@ mod http {
 			return;
 		};
 
-		let (hm404, e404) = load_404(config.not_found.as_deref()).await;
-		let error_404 = (StatusCode::NOT_FOUND, hm404, e404);
+		let error_404 = load_404(config.not_found.as_deref()).await;
 
-		let app = |request: Request<Body>| async move {
-			use std::io::ErrorKind;
-
-			if request.method() != Method::GET {
-				// the server can only handle get requests
-				eprintln!("[error] blocked non-get request: {:?}", request);
-				return (StatusCode::METHOD_NOT_ALLOWED, HeaderMap::new(), Vec::new());
-			}
-
-			let (mime, path) = match config.resolve_route(request.uri().to_string()) {
-				None => {
-					eprintln!(
-						"[error] blocked request without configured route: GET {}",
-						request.uri()
-					);
-					return error_404.clone();
-				}
-				Some(x) => x,
-			};
-
-			let log_path = path
-				.strip_prefix(&config.file_dir)
-				.unwrap_or_else(|_| &path);
-			println!("[GET {}] open {:?}", request.uri(), log_path);
-
-			match tokio::fs::read(path).await {
-				Ok(v) => {
-					let hdr = match mime {
-						None => HeaderMap::new(),
-						Some(t) => {
-							let Ok(mime) = HeaderValue::from_str(t.as_ref()) else {
-								eprintln!("[error] invalid mime type for header: {t}");
-								return (
-									StatusCode::INTERNAL_SERVER_ERROR,
-									HeaderMap::new(),
-									Vec::new(),
-								);
-							};
-
-							mime_header(mime)
-						}
-					};
-					(StatusCode::OK, hdr, v)
-				}
-				Err(e) => match e.kind() {
-					ErrorKind::NotFound => error_404.clone(),
-					_ => (
-						StatusCode::INTERNAL_SERVER_ERROR,
-						mime_header(HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref())),
-						format!("error opening file: {e}").into_bytes(),
-					),
-				},
-			}
-		};
+		let app = move |request| async move { app(&config, &error_404, request).await };
 
 		if let Err(e) = axum::serve(listener, app.into_make_service()).await {
 			eprintln!("[error] server failed: {e}");
@@ -453,13 +481,14 @@ mod http {
 		None
 	}
 
-	async fn load_404(path: Option<&Path>) -> (HeaderMap, Vec<u8>) {
+	async fn load_404(path: Option<&Path>) -> Response {
 		if let Some(path) = path {
 			match std::fs::read(path) {
 				Ok(data) => {
 					println!("[info] loaded 404 file");
-					return (
-						mime_header(HeaderValue::from_static(mime::TEXT_HTML.as_ref())),
+					return Response::MimeBody(
+						StatusCode::NOT_FOUND,
+						Some(SetMime(mime::TEXT_HTML)),
 						data,
 					);
 				}
@@ -470,11 +499,7 @@ mod http {
 		} else {
 			println!("[info] proceeding without 404 file");
 		}
-		Default::default()
-	}
-
-	fn mime_header(mime: HeaderValue) -> HeaderMap {
-		HeaderMap::from_iter([(axum::http::header::CONTENT_TYPE, mime)])
+		Response::PureCode(StatusCode::NOT_FOUND)
 	}
 }
 
