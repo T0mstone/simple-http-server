@@ -257,30 +257,20 @@ mod config {
 			})
 		}
 
-		pub fn resolve_route(
-			&self,
-			url: impl AsRef<str>,
-			index: Option<&Utf8PathBuf>,
-		) -> Option<FileObject> {
+		pub fn resolve_route(&self, url: impl AsRef<str>) -> Option<FileObject> {
 			let mut url = url.as_ref();
 			if url == "direct" {
 				url = "%direct";
 			}
-			match url.strip_prefix('/').unwrap_or(url) {
-				"" => index.map(|p| FileObject::ExplicitMime {
-					r#type: "text/html".to_string(),
-					path: p.clone(),
-				}),
-				s => self
-					.direct
-					.iter()
-					.find({
-						let path: &Utf8Path = s.as_ref();
-						move |r| r.path() == path
-					})
-					.or_else(|| self.map.get(s))
-					.cloned(),
-			}
+			let s = url.strip_prefix('/').unwrap_or(url);
+			self.direct
+				.iter()
+				.find({
+					let path: &Utf8Path = s.as_ref();
+					move |r| r.path() == path
+				})
+				.or_else(|| self.map.get(s))
+				.cloned()
 		}
 	}
 
@@ -289,7 +279,6 @@ mod config {
 		pub addr: String,
 		#[serde(default)]
 		pub failsafe_addrs: Vec<String>,
-		pub index: Option<Utf8PathBuf>,
 		#[serde(rename = "404")]
 		pub not_found: Option<Utf8PathBuf>,
 		pub get_routes: Option<GetRoutes>,
@@ -357,7 +346,6 @@ mod config {
 					.iter_mut()
 					.map(|r| r.path_mut())
 					.chain(new_gr.map.values_mut().map(|r| r.path_mut()))
-					.chain(content.index.as_mut())
 					.chain(content.not_found.as_mut())
 				{
 					if path.is_relative() {
@@ -374,10 +362,7 @@ mod config {
 		}
 
 		pub fn resolve_route(&self, url: impl AsRef<str>) -> Option<(Option<Mime>, Utf8PathBuf)> {
-			let route = self
-				.get_routes
-				.as_ref()?
-				.resolve_route(url, self.index.as_ref())?;
+			let route = self.get_routes.as_ref()?.resolve_route(url)?;
 			Some(route.process())
 		}
 	}

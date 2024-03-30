@@ -12,12 +12,12 @@ All relative file paths are interpreted as relative to the config file.
 - 'addr' (required): the address (including port) to bind to 
     (this is resolved using the hosts file so you can put e.g. 'localhost')
 - 'failsafe_addrs' (optional): the addresses to try one after the other if binding to 'addr' fails (1)
-- 'index' (optional): the path to the html file that will be returned if you request the root page (`/`)
 - '404' (optional): the path to the html file that will be displayed with an error 404 response
 
 (1): Trying stops once a working one is found and that one is then used
 #### Sections
 - 'get_routes' (optional): specify which GET request paths lead to which files (the values are FileObjects)
+  - note: if you want to route the root page, you need to specify an empty key, i.e. `"" = "root.html"`
   - the special (optional) 'direct' key has to be a list of FileObjects.
     This is a shorthand for directly using the GET request path to read the file.
     For that reason, absolute paths outside of the config file's directory are disallowed here.
