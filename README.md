@@ -32,6 +32,12 @@ All relative file paths are interpreted as relative to the config file.
     - `text/plain` from `.txt`
     - `text/html` from `.html`
     - `text/css` from `.css`
+    - `text/javascript` from `.js`
     - `image/png` from `.png`
+    - `image/jpeg` from `.jpg` or `.jpeg`
+    - `image/jxl` from `.jxl`
+    - `image/svg` from `.svg`
     - `video/mp4` from `.mp4` or `.m4v`
     - `video/x-matroska` from `.mkv`
+    - `application/pdf` from `.pdf`
+    - `application/wasm` from `.wasm`

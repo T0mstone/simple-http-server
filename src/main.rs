@@ -195,15 +195,23 @@ mod config {
 			match self {
 				FileObject::ExplicitMime { r#type, path } => (Mime::from_str(&r#type).ok(), path),
 				FileObject::InferMime(path) => {
-					let mime = path.extension().and_then(|extension| match extension {
-						"txt" => Mime::from_str("text/plain").ok(),
-						"html" => Mime::from_str("text/html").ok(),
-						"css" => Mime::from_str("text/css").ok(),
-						"png" => Mime::from_str("image/png").ok(),
-						"mp4" | "m4v" => Mime::from_str("video/mp4").ok(),
-						// not an official mime type but the suggested one by matroska.org
-						"mkv" => Mime::from_str("video/x-matroska").ok(),
-						_ => None,
+					let mime = path.extension().and_then(|extension| {
+						Some(match extension {
+							"txt" => mime::TEXT_PLAIN,
+							"html" => mime::TEXT_HTML,
+							"css" => mime::TEXT_CSS,
+							"js" => mime::TEXT_JAVASCRIPT,
+							"png" => mime::IMAGE_PNG,
+							"jpg" | "jpeg" => mime::IMAGE_JPEG,
+							"jxl" => Mime::from_str("image/jxl").ok()?,
+							"svg" => mime::IMAGE_SVG,
+							"mp4" | "m4v" => Mime::from_str("video/mp4").ok()?,
+							// not an official mime type but the suggested one by matroska.org
+							"mkv" => Mime::from_str("video/x-matroska").ok()?,
+							"pdf" => mime::APPLICATION_PDF,
+							"wasm" => Mime::from_str("application/wasm").ok()?,
+							_ => return None,
+						})
 					});
 
 					(mime, path)
