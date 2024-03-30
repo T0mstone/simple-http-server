@@ -3,9 +3,14 @@
 
 addr = "localhost:8000"
 failsafe_addrs = ["localhost:8001"]
-index = "index.html"
+"404" = "404.html"
 
 [get_routes]
 direct = ["index.html"]
+"" = "index.html"
 "style.css" = "style.css"
 "favicon.ico" = { type = "image/png", path = "favicon.png" }
+
+# this makes 'localhost:8000/direct' route to 'index.html'
+unspecial.direct = "index.html"
+# alternatively: `unspecial = { direct = "index.html" }`
