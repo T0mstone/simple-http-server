@@ -1,9 +1,9 @@
 [package]
 name = "simple-http-server"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["T0mstone <realt0mstone@gmail.com>"]
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.75.0"
 
 [features]
 default = ["http1", "http2"]

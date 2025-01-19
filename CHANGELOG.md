@@ -1,3 +1,8 @@
+# 0.3.1
+
+- Updated dependencies
+- Increased MSRV to 1.75.0
+
 # 0.3.0
 
 ## Breaking Changes
