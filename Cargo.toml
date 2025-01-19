@@ -12,7 +12,7 @@ http1 = ["axum/http1"]
 http2 = ["axum/http2"]
 
 [dependencies]
-axum = { version = "0.7", default-features = false, features = ["tokio"] }
+axum = { version = "0.8", default-features = false, features = ["tokio"] }
 camino = { version = "1", features = ["serde1"] }
 mime = "0.3"
 serde = { version = "1.0.145", features = ["derive"] }
