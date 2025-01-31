@@ -2,7 +2,7 @@
 name = "simple-http-server"
 # note: this crate is pretty much finished,
 # but it won't be `1.x` until all its dependencies are.
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.75.0"
 

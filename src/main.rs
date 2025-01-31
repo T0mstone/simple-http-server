@@ -23,13 +23,13 @@ mod log {
 
 			let output = format!(
 				"USAGE:
-	{this} [--] <path to config file>
-		Run the server normally
-	{this} -h|--help
-		Show this message and exit
-	{this} --{PRINT_README_FLAG}
-		Write out this software's documentation
-		in the form of a README.md file (to stdout)"
+{this} [--] <path to config file>
+	Run the server normally
+{this} -h|--help
+	Show this message and exit
+{this} --{PRINT_README_FLAG}
+	Write out this software's documentation
+	in the form of a README.md file (to stdout)"
 			);
 			if success {
 				println!("{output}");
