@@ -1,13 +1,14 @@
 # Unreleased
-- Removed automatic mime-type detection for `.m4v`
+- Removed automatic mime-type detection for `.m4v`.
+- Added new inferred mime-types.
 
 # 0.3.2
-- Updated dependencies to compatible versions
+- Updated dependencies to compatible versions.
 
 # 0.3.1
 
-- Updated dependencies
-- Increased MSRV to 1.75.0
+- Updated dependencies.
+- Increased MSRV to 1.75.0.
 
 # 0.3.0
 

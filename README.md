@@ -31,14 +31,26 @@ All relative file paths are interpreted as relative to the config file.
 - A FileObject is either a path (relative or absolute) or a map of the form `{ type = <mime type>, path = <path> }`
 - Currently supported inferred Media Types are
     - `text/plain` from `.txt`
-    - `text/html` from `.html`
+    - `text/html` from `.html` or `.htm`
     - `text/css` from `.css`
     - `text/javascript` from `.js`
     - `image/png` from `.png`
     - `image/jpeg` from `.jpg` or `.jpeg`
+    - `image/webp` from `.webp`
     - `image/jxl` from `.jxl`
+    - `image/gif` from `.gif`
     - `image/svg` from `.svg`
     - `video/mp4` from `.mp4`
     - `video/x-matroska` from `.mkv`
+    - `video/webm` from `.webm`
+    - `audio/mpeg` from `.mp3`
+    - `audio/ogg` from `.opus`
+    - `audio/wav` from `.wav`
+    - `application/xml` from `.xml`
+    - `application/json` from `.json`
     - `application/pdf` from `.pdf`
     - `application/wasm` from `.wasm`
+    - `font/ttf` from `.ttf`
+    - `font/otf` from `.otf`
+    - `font/woff` from `.woff`
+    - `font/woff2` from `.woff2`

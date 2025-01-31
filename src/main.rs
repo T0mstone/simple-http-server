@@ -228,18 +228,30 @@ mod config {
 					let mime = path.extension().and_then(|extension| {
 						Some(match extension {
 							"txt" => mime::TEXT_PLAIN,
-							"html" => mime::TEXT_HTML,
+							"html" | "htm" => mime::TEXT_HTML,
 							"css" => mime::TEXT_CSS,
 							"js" => mime::TEXT_JAVASCRIPT,
 							"png" => mime::IMAGE_PNG,
 							"jpg" | "jpeg" => mime::IMAGE_JPEG,
+							"webp" => Mime::from_str("image/webp").ok()?,
 							"jxl" => Mime::from_str("image/jxl").ok()?,
+							"gif" => mime::IMAGE_GIF,
 							"svg" => mime::IMAGE_SVG,
 							"mp4" => Mime::from_str("video/mp4").ok()?,
 							// not an official mime type but the suggested one by matroska.org
 							"mkv" => Mime::from_str("video/x-matroska").ok()?,
+							"webm" => Mime::from_str("video/webm").ok()?,
+							"mp3" => Mime::from_str("audio/mpeg").ok()?,
+							"opus" => Mime::from_str("audio/ogg").ok()?,
+							"wav" => Mime::from_str("audio/wav").ok()?,
+							"xml" => Mime::from_str("application/xml").ok()?,
+							"json" => mime::APPLICATION_JSON,
 							"pdf" => mime::APPLICATION_PDF,
 							"wasm" => Mime::from_str("application/wasm").ok()?,
+							"ttf" => Mime::from_str("font/ttf").ok()?,
+							"otf" => Mime::from_str("font/otf").ok()?,
+							"woff" => mime::FONT_WOFF,
+							"woff2" => mime::FONT_WOFF2,
 							_ => return None,
 						})
 					});
