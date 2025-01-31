@@ -1,3 +1,6 @@
+# 0.3.2
+- Updated dependencies to compatible versions
+
 # 0.3.1
 
 - Updated dependencies
