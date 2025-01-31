@@ -1,3 +1,6 @@
+# Unreleased
+- Removed automatic mime-type detection for `.m4v`
+
 # 0.3.2
 - Updated dependencies to compatible versions
 

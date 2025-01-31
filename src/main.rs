@@ -235,7 +235,7 @@ mod config {
 							"jpg" | "jpeg" => mime::IMAGE_JPEG,
 							"jxl" => Mime::from_str("image/jxl").ok()?,
 							"svg" => mime::IMAGE_SVG,
-							"mp4" | "m4v" => Mime::from_str("video/mp4").ok()?,
+							"mp4" => Mime::from_str("video/mp4").ok()?,
 							// not an official mime type but the suggested one by matroska.org
 							"mkv" => Mime::from_str("video/x-matroska").ok()?,
 							"pdf" => mime::APPLICATION_PDF,

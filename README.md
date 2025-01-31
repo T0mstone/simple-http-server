@@ -38,7 +38,7 @@ All relative file paths are interpreted as relative to the config file.
     - `image/jpeg` from `.jpg` or `.jpeg`
     - `image/jxl` from `.jxl`
     - `image/svg` from `.svg`
-    - `video/mp4` from `.mp4` or `.m4v`
+    - `video/mp4` from `.mp4`
     - `video/x-matroska` from `.mkv`
     - `application/pdf` from `.pdf`
     - `application/wasm` from `.wasm`
