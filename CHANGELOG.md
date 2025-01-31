@@ -1,5 +1,5 @@
 # Unreleased
-- Removed automatic mime-type detection for `.m4v`.
+- Removed inferred mime-type for `.m4v`.
 - Added new inferred mime-types.
 
 # 0.3.2
