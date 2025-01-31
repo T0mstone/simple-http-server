@@ -1,4 +1,4 @@
-# Unreleased
+# 0.4.0
 - Removed inferred mime-type for `.m4v`.
 - Added new inferred mime-types.
 
