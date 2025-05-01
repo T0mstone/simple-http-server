@@ -1,3 +1,6 @@
+# 0.5.0
+- Changed how routing works: It now only looks at the [_path_ part](https://docs.rs/http/1.3.1/http/uri/struct.Uri.html#method.path) of the URI.
+
 # 0.4.1
 - Removed one level of indentation from the `--help` output.
 

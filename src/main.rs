@@ -522,7 +522,7 @@ mod http {
 			return Response::PureCode(StatusCode::METHOD_NOT_ALLOWED);
 		}
 
-		let (mime, path) = match config.resolve_route(request.uri().to_string()) {
+		let (mime, path) = match config.resolve_route(request.uri().path()) {
 			None => {
 				log::get(request.uri(), "blocked (no configured route)");
 				return error_404.clone();
