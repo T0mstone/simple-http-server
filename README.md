@@ -17,6 +17,7 @@ All relative file paths are interpreted as relative to the config file.
 (1): Trying stops once a working one is found and that one is then used
 #### Sections
 - 'get_routes' (optional): specify which GET request paths lead to which files (the values are FileObjects)
+  - note: the keys do **not** include the prefix `/`. (I've made this error myself a few too many times...)
   - note: if you want to route the root page, you need to specify an empty key, i.e. `"" = "root.html"`
   - the special (optional) 'direct' key has to be a list of FileObjects.
     This is a shorthand for directly using the GET request path to read the file.
